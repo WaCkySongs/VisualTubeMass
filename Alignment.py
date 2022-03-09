@@ -3,37 +3,43 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
-
-
-def alignImg_kp(im,method=0,maxFeatures=5000):
-    imG = cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
+def diffImg(im1, im2, Method = 1, ifwrite = False):
+    im1G = cv2.cvtColor(im1,cv2.COLOR_BGR2GRAY)
+    im2G = cv2.cvtColor(im2,cv2.COLOR_BGR2GRAY)
     # alignment method
-    if method == 0 :
-        alignor = cv2.ORB_create(maxFeatures)
+    if Method == 0 :
+        alignor = cv2.ORB_create(nfeatures= 5000)
     else:
         alignor = cv2.SIFT_create() 
-    kp,des = alignor.detectAndCompute(imG,None)
-    return imG,kp,des
+    kp1,des1 = alignor.detectAndCompute(im1G,None)
+    kp2,des2 = alignor.detectAndCompute(im2G,None)
 
-def alignImg_match(des1,des2, GoodPercent = 0.1):
-    if True: # Brute-Force Matcher
+    if Method == 0: # Brute-Force Matcher for ORB
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         matches = bf.match(des1,des2)
         matches = sorted(matches, key = lambda x:x.distance)
-    else: # flann matcher
-        flann = cv2.FlannBasedMatcher(index_params, search_params)
+        # 10% good matches
+        GoodPercent = 0.1
+        num = int(len(matches)* GoodPercent)
+        matches = matches[:num]
+    else: # flann matcher for SIFT
+        indexParams = dict(algorithm = 0, trees = 5)
+        searchParams = dict(checks=50)   # or pass empty dictionary
+        flann = cv2.FlannBasedMatcher(indexParams, searchParams)
+        matchesA = flann.knnMatch(des1,des2,k = 2)
+        matches = []
+        for m,n in matchesA:
+            if m.distance < 0.4 * n.distance:
+                matches.append(m)
 
-    num = int(len(matches)* GoodPercent)
-    matches = matches[:num]
-    return matches
+    # matchesMask = [[0,0] for i in range(len(matches))]
 
-def diffImg(im1,im2,ifwrite = False):
-    im1G,kp1,des1 = alignImg_kp(im1)
-    im2G,kp2,des2 = alignImg_kp(im2)
-    
-    matches = alignImg_match(des1,des2)
-    imMatches = cv2.drawMatches(im1G,kp1,im2G,kp2,matches,None)
-    if ifwrite: cv2.imwrite('matches.jpg',imMatches)
+    # for i, (m,n) in enumerate(matches):
+    #     if m.distance < 0.4*n.distance:
+    #         matchesMask[i] = [1,0]
+    if ifwrite:
+        imMatches = cv2.drawMatches(im1G,kp1,im2G,kp2,matches,None)
+        if ifwrite: cv2.imwrite('matches.jpg',imMatches)
 
     # Extract location of good matches
     pts1 = np.zeros((len(matches),2,),dtype=np.float32)
@@ -47,16 +53,18 @@ def diffImg(im1,im2,ifwrite = False):
     h, mask = cv2.findHomography(pts2,pts1,cv2.RANSAC,ransacReprojThreshold=4)
 
     a,b,c = im1.shape
-    im2Reg = cv2.warpPerspective(im2,h,(b,a))
-    im3 = im2Reg - im1  
+    im2GReg = cv2.warpPerspective(im2G,h,(b,a))
+    im2GDiff = cv2.absdiff(im2GReg,im1G)
+    if ifwrite: cv2.imwrite('im2GReg.jpg',im2GReg)
+    if ifwrite: cv2.imwrite('im2GDiff.jpg',im2GDiff)
 
-    if ifwrite: cv2.imwrite('im2Reg.jpg',im2Reg)
-
-    return im2Reg
+    return im2GReg, im2GDiff,sum(sum(im2GDiff))/im2GDiff.size
 
 if  __name__=='__main__':
-    im1 = cv2.imread('D01s.jpg')
-    im2 = cv2.imread('D0s.jpg')
+    im1 = cv2.imread('D0s.jpg')
+    im2 = cv2.imread('D01s.jpg')
+
+    _,im2GDiff,aveDiff = diffImg(im1,im2,Method=1,ifwrite=True)
 
 
 
