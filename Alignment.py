@@ -1,16 +1,17 @@
-from asyncore import write
+# TODO: mask the tube (https://www.lmlphp.com/user/151116/article/item/7779659/)(https://stackoverflow.com/questions/42346761/opencv-python-feature-detection-how-to-provide-a-mask-sift)
+
+# ref
+# [Python进行SIFT图像对准](https://www.jianshu.com/p/f1b97dacc501?tdsourcetag=s_pctim_aiomsg)
+
 import numpy as np
 import cv2
-import matplotlib.pyplot as plt
 
 def diffImg(im1, im2, Method = 1, ifwrite = False):
     im1G = cv2.cvtColor(im1,cv2.COLOR_BGR2GRAY)
     im2G = cv2.cvtColor(im2,cv2.COLOR_BGR2GRAY)
     # alignment method
-    if Method == 0 :
-        alignor = cv2.ORB_create(nfeatures= 5000)
-    else:
-        alignor = cv2.SIFT_create() 
+    if Method == 0 :        alignor = cv2.ORB_create(nfeatures= 5000)
+    else:        alignor = cv2.SIFT_create() 
     kp1,des1 = alignor.detectAndCompute(im1G,None)
     kp2,des2 = alignor.detectAndCompute(im2G,None)
 
