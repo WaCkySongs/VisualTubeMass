@@ -1,5 +1,10 @@
 # Visual process the oil/ref mass flow rate in transparent tube
 
+## TODO:
+
+1. save ROIs Pending
+2. return to alignmenet whole image, then select good points by diff of ambient.
+
 ## Test source
 
 [2018.07.05.191721冷启动.mov](E:\ba高速摄影仪录像\2018.06\2018.07.05\2018.07.05.1917 21冷启动.mov)
@@ -27,6 +32,10 @@ Manually <-> Code
    2. Match
       1. Brutal Force: BFMatcher for ORB
       2. FLANN
+   3. Alignment NOTE: whole (DOING: Better) or part
+      1. not very good in whole img, maybe seperately ? faster ,but SG2 lost accurate
+      2. Sightglass2 misalignment during frosting some frames, maybe postprocess
+3. faster by save im1G, pts1, des1 ...
 
 ## FUTHER DEVELOPMENT
 
@@ -37,5 +46,3 @@ Manually <-> Code
    3. 分割与特征提取
       1. 腐蚀与膨胀和开闭运算
    4. PostProcess Length, Area, etc.
-
-

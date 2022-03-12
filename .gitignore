@@ -1,6 +1,10 @@
 
 
 *.jpg
-*.Ink
+*.lnk
 *.png
 *.psd
+*.mov
+*.csv
+*.avi
+*.xlsx
