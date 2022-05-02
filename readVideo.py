@@ -18,7 +18,6 @@ import time
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import shelve
 
 # ROI substract
 class ROI(object):
@@ -216,9 +215,10 @@ class ROIs(object):
 if __name__ == '__main__':
     # read video
     folderPath = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.27\\'
-    videoPath = '2018.07.27.1126 7启动 吸排气.mov'
+    videoPath = '2018.07.27.1126 2启动 吸排气.mov'
     cap = cv2.VideoCapture(folderPath+videoPath)
     fps = cap.get(cv2.CAP_PROP_FPS)
+    
     
     # set boundary
     ret, frame0 = cap.read()
