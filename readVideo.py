@@ -1,4 +1,10 @@
-# DEV: by W.C. wangche0731@outlook.com
+""" read the video and PostProcess
+
+flowchart for a video
+set boundary -> align -> diff to frame0 -> record statistics -> save data 
+
+DEV: by W.C. wangche0731@outlook.com
+
 # TODO: 
 # faster *1.5 cost than real time at dt 1s
 
@@ -9,104 +15,201 @@
 #   
 # read
 
-# mask the tube & frame in SIFT (https://www.lmlphp.com/user/151116/article/item/7779659/)(https://stackoverflow.com/questions/42346761/opencv-python-feature-detection-how-to-provide-a-mask-sift)
 
 # ref
-# [Python进行SIFT图像对准](https://www.jianshu.com/p/f1b97dacc501?tdsourcetag=s_pctim_aiomsg)
+[Python进行SIFT图像对准](https://www.jianshu.com/p/f1b97dacc501?tdsourcetag=s_pctim_aiomsg)
+mask the tube & frame in SIFT (https://www.lmlphp.com/user/151116/article/item/7779659/)(https://stackoverflow.com/questions/42346761/opencv-python-feature-detection-how-to-provide-a-mask-sift)
 
+"""
+
+from configparser import Interpolation
 import time
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from tenacity import retry_unless_exception_type
 
 # ROI substract
 class ROI(object):
-    def __init__(self,id,frame0,method = 1) -> None:
+    r""" A region of interest object
+
+    Create a ROI include all ROIs and its postprocess flow
+
+    Parameters
+    ----------
+
+    id : int
+        id
+    a,b : int
+        height, width of frame/frame0 
+    num: int
+        num of boundary points
+    xy: np.array num*2
+        coord of boundary points
+    lines: plt.lines
+        lines of boundary with matplotlib
+
+    mask: np.array = 255
+        mask of the ROI, valid in diff, invalid in align
+    # ambient: np.array = 0 discard
+    #     ambient region, diff invalid, valid in align
+
+    """
+
+    def __init__(self,id,height,width) -> None:
         self.id = id
+        self.height ,self.width = height,width 
         self.num = 0
         self.xy = np.empty((0,2))
         self.lines = []
-        self.frame = []
-        self.resetMask(frame0)
-        # self.wab = [0,frame0.shape[1]]
-        # self.frame0 = frame0[:,:,0]
-        # self.mask = np.zeros(self.frame0.shape,dtype= np.uint8)
-        # self.ambient = np.zeros(self.frame0.shape,dtype= np.uint8)
-        self.method = method # ORB or SIFT
-        self.alignor = []
-        self.des0 = []
-        self.kp0 = []
-        self.ifwrite = False
-    def resetMask(self,frame0):
-        self.wab = [0,frame0.shape[1]]
-        self.frame0 = frame0
-        self.mask = np.zeros(self.frame0.shape,dtype= np.uint8)
-        self.ambient = np.zeros(self.frame0.shape,dtype= np.uint8)
+        self.mask = np.zeros((height,width),dtype= np.uint8)
+
     def add(self,x,y):
+        ' add boundary point '
         self.num = self.num + 1
         self.xy = np.append(self.xy,[[x,y]],axis=0)
+    
     def pop(self):
+        ' pop boundary point '
         if self.num > 0:
             self.num = self.num - 1
             self.xy = np.delete(self.xy,self.num,0)
         else:
             print('All bound points have been popped')
-    # def save(self):
-    #     np.save
-    def draw(self,ax):
+    
+    def drawLines(self,ax):
+        ' draw the boundary of ROI in axis '
         if self.lines:
             self.lines[0].remove()
             self.lines = []
         if self.num == 1:
             x = self.xy[0,0]
-            y = self.xy[0,1]
-            self.lines = ax.plot([x,x],[0,1000], color= 'r')
+            self.lines = ax.plot([x,x],[0,self.height*0.99], color= 'r')
         elif self.num > 1:
             self.lines = ax.plot(self.xy[:,0],self.xy[:,1], color = 'r')
-    def setWidth(self,a,b):
-        self.wab[0] = int(a)
-        self.wab[1] = int(b)
-    def getWab(self):
-        return self.wab[0], self.wab[1]
-    def getWidth(self):
-        width = self.wab[1] - self.wab[0] +1
-        return width
+    
     def getMask(self):
-        pts  = np.array(self.xy,dtype=np.int32)
-        width = pts[:,0].max()-pts[:,0].min()
-        middle = 0.5*( pts[:,0].max()+pts[:,0].min() )
-        self.ambient[:,:] = 0
         self.mask[:,:] = 0
-        self.points = [np.array(self.xy,dtype=np.int32)]
-        if self.num == 1: # frame bound
-            wa = self.wab[1]
-            wb = self.frame0.shape[1]
-            self.setWidth(wa,wb)
-            self.mask[:,:int(self.xy[0,0])] = 255
+        points = [np.array(self.xy,dtype=np.int32)]
+        if self.num == 1: # frame bound : only include panel
+            self.mask[:,int(self.xy[0,0]):] = 255
         elif self.num >= 1:
-            wa = int( max([self.wab[0], middle-2*width]) )
-            wb = int(min([self.wab[1], middle+2*width]))
-            self.setWidth(wa,wb)
-            self.ambient[:,wa:wb] = 255
-            self.mask = cv2.fillPoly(self.mask,self.points,(255))
-            self.ambient = cv2.bitwise_xor(self.mask,self.ambient)
-            # crop
-            self.mask = self.mask[:,wa:wb]
-            self.ambient = self.ambient[:,wa:wb]
-            self.frame0 = self.frame0[:,wa:wb]
-            self.detectFrame0()
+            self.mask = cv2.fillPoly(self.mask,points,(255))
+        return self.mask
+
+class postTubes(object):
+    r''' ROIs object whole image
+
+    
+    Parameters:
+    -------
+
+    frame0: np.array in black/white
+        reference frame, to be align/diff
+    hw: 2* int
+        height, width of frame0
+    numROI/numBound: int
+        number of ROI sub
+    iBound: int
+        current ROIs to be set
+    bounds: ROI
+        detail of ROI
+    method,alignor,des0,kp0: int,...etc.
+        1 : ORB else: SIFT(slow) 
+        how to align  frame
+    
+    '''
+    def __init__(self,numROI,frame0,method = 1) -> None:
+
+        self.frame0 = frame0
+        self.hw = frame0.shape[0:2] # heigh width
+
+        self.numBound = numROI # numb of ROI
+        self.iBound = 0
+        self.bounds = []
+        for i in range(numROI+1):
+            self.bounds.append(ROI(i,self.hw[0],self.hw[1]))
+
+        self.ambient = None # Region exclude bounds  
+
+        self.method = method # ORB or SIFT
+        self.alignor = []
+        self.des0 = []
+        self.kp0 = []
+        self.ifwrite = False
         
-    def detectFrame0(self):
+        self.fig = plt.figure()
+        self.fig.canvas.mpl_connect("key_press_event", self.setiROIBound)
+        self.fig.canvas.mpl_connect('button_press_event',self.setROIPoints)
+        self.ax = self.fig.add_subplot(111)
+        self.drawFrame()
+    
+    def drawFrame(self,frame = None):
+        if frame is None: frame = self.frame0
+        self.ax.cla()
+        self.ax.imshow(frame,cmap='gray',interpolation='bicubic')
+        self.fig.canvas.draw()     
+    def drawLines(self):
+        for b in self.bounds:
+            b.drawLines(self.ax)
+        self.fig.canvas.draw()     
+
+    # bonded Key and Button in fig
+    def setiROIBound(self,event):        
+        if event.key in '0123456789': # set bounds[key]
+            if self.iBound <= self.numBound:
+                self.iBound = int(event.key)
+                self.drawFrame()
+                self.drawLines()
+                print('set bound ',self.iBound,' Num_current',self.bounds[self.iBound].num)
+            else:
+                print('out of max bound')
+        elif event.key in '-': # exit
+            pass
+    def setROIPoints(self,event):
+        iBound = self.iBound
+        a = self.bounds[0] # pointer like
+        b = self.bounds[self.iBound]
+        x,y = event.xdata, event.ydata
+        if event.button == 1: # left
+            print('add ',b.num+1,'st point of bound ',iBound,'at',x,y)
+            b.add(x,y)
+        elif event.button == 3:  # right
+            print('pop ',b.num,'st point of bound ',iBound)
+            b.pop()
+        elif event.button ==2: # middle complete
+            b.getMask()
+            self.getAmbient()
+            Tube = cv2.bitwise_and(b.mask,self.frame0)
+            Ambient = cv2.bitwise_and(self.ambient,self.frame0)//5 # darker ambient
+            self.drawFrame(Tube+Ambient)
+            cv2.waitKey(10)
+            return
+        b.drawLines(self.ax)
+        self.fig.canvas.draw()     
+    def saveROIPoints(self):
+        1 # TODO: DOING: SAVE POINTS to txt file
+    def getAmbient(self):
+        ambient = self.bounds[0].mask
+        for b in self.bounds[1:]:
+            ambient = cv2.bitwise_or(b.mask,ambient) # reduce mask region
+        self.ambient = cv2.bitwise_not(ambient)
+        return self.ambient
+
+    def detectFrame0(self): 
         if self.method == 0 :        self.alignor = cv2.ORB_create(nfeatures= 5000)
         else:        self.alignor = cv2.SIFT_create() 
         self.kp0,self.des0 = self.alignor.detectAndCompute(self.frame0,self.ambient)
-    def alignFrame(self,im2G): # by mask ambient
+
+    def alignFrame(self,im2G, ifmask = 'ambient'): # by mask ambient
         # alignment
         im1G = self.frame0
         kp1 = self.kp0
         des1 = self.des0
+
+        mask = self.ambient if ifmask == 'ambient' else ifmask
         
-        kp2,des2 = self.alignor.detectAndCompute(im2G,self.ambient)
+        kp2,des2 = self.alignor.detectAndCompute(im2G,mask)
         if self.method == 0: # Brute-Force Matcher for ORB
             bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
             matches = bf.match(des1,des2)
@@ -138,7 +241,7 @@ class ROI(object):
             pts2[i,:] = kp2[match.trainIdx].pt
 
         # homography
-        h, mask = cv2.findHomography(pts2,pts1,cv2.RANSAC,ransacReprojThreshold=4)
+        h, maskh = cv2.findHomography(pts2,pts1,cv2.RANSAC,ransacReprojThreshold=4)
 
         a,b = im1G.shape
         im2GReg = cv2.warpPerspective(im2G,h,(b,a))
@@ -151,114 +254,63 @@ class ROI(object):
     def diffFrame(self,im2G , ifdiff = True):
         if not ifdiff:
             return im2G
-        self.alignFrame(im2G)
         self.diff = cv2.absdiff(self.frame,self.frame0)
-        mask = self.mask//255
-        diff = mask * self.diff 
-        ave = diff.sum()/mask.sum()
-        ambient = self.ambient//225 
-        diff2 = ambient * self.diff
-        ave2 = diff2.sum()/ambient.sum()
-        return ave, ave2
-
-class ROIs(object):
-    def __init__(self,numROI,frame0,method = 1) -> None:
-        self.numBound = numROI # numb of ROI
-        self.iBound = 0
-        self.bounds = []
-        self.hw = frame0.shape[0:2] # heigh width
+        return self.diff
     
-        for i in range(numROI+1):
-            self.bounds.append(ROI(i,frame0,method))
-        
-        self.fig = plt.figure()
-        self.fig.canvas.mpl_connect("key_press_event", self.Key)
-        self.fig.canvas.mpl_connect('button_press_event',self.Button)
-        self.ax = self.fig.add_subplot(111)
-        self.ax.imshow(frame0,cmap='gray',interpolation='bicubic')
-    def getWidth(self):
-        width = 0
-        for b in self.bounds:
-            width = width + b.getWidth()
-        return width
-    def Key(self,event):        
-        if event.key in '0123456789': # set bounds[key]
-            if self.iBound <= self.numBound:
-                self.iBound = int(event.key)
-                print('set bound ',self.iBound,' Num_current',self.bounds[self.iBound].num)
-            else:
-                print('out of max bound')
-    def Button(self,event):
-        iBound = self.iBound
-        a = self.bounds[0] # pointer like
-        b = self.bounds[self.iBound]
-        x = event.xdata
-        y = event.ydata
-        if event.button == 1: # left
-            print('add ',b.num+1,'st point of bound ',iBound,'at',x,y)
-            b.add(x,y)
-        elif event.button == 3:  # right
-            print('pop ',b.num,'st point of bound ',iBound)
-            b.pop()
-        elif event.button ==2: # middle complete
-            wa = int(a.xy[0,0]) # frame0 select
-            b.resetMask(a.frame0)
-            b.setWidth(0,wa) 
-            b.getMask()
-            Tube = cv2.bitwise_and(b.mask,b.frame0)
-            Ambient = cv2.bitwise_and(b.ambient,b.frame0)//5
-            cv2.imshow('ROI',Tube+Ambient)
-            cv2.waitKey(10)
-        b.draw(self.ax)
-        self.fig.canvas.draw()
+    def statisticROI(self):
+        mAve = np.zeros((1,self.numBound+1))
+        ambient = self.ambient//225 
+        for i,b in enumerate(self.bounds[1:]):
+            mask = b.mask//255
+            maskDiff = mask * self.diff 
+            mAve[0,i] = maskDiff.sum()/mask.sum()
+        ambientDiff = ambient * self.diff
+        mAve[0,i+1] = ambientDiff.sum()/ambient.sum()
+        return mAve
 
 if __name__ == '__main__':
     # read video
-    folderPath = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.27\\'
-    videoPath = '2018.07.27.1126 2启动 吸排气.mov'
-    cap = cv2.VideoCapture(folderPath+videoPath)
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.07\\'
+    fn = '2018.07.07.1115 -7冷启动.mov'
+    iframe0 = 0
+
     
+    cap = cv2.VideoCapture(fp+fn)
+    fps = cap.get(cv2.CAP_PROP_FPS)
     
     # set boundary
     ret, frame0 = cap.read()
     print('set boundaries for frame&tubes')
-    numBound = 2
-    tube = ROIs(numBound,frame0[:,:,0])
+    numBound = 4
+    analysis = postTubes(numBound,frame0[:,:,0])
     plt.ioff()
     plt.show()
-    
-    hwG = (frame0.shape[0],tube.getWidth())
+
+    # wait until boundary set
+    analysis.detectFrame0()
 
     print('start processing')
-    dTime = 1.0
+    dTime = 5 # [s]
     Time  = 0.0 # s 
     capLen = int( cap.get(7)/cap.get(5)/float(dTime) ) 
-    Lmean = np.zeros((capLen,numBound*2+1))
+    Lmean = np.zeros((capLen,numBound+2)) # Res. Mean Lumination 
     tic = time.time()
-    resVideo = cv2.VideoWriter('Res.avi',cv2.VideoWriter_fourcc(*'XVID'),float(1),(hwG[1],hwG[0]),isColor = False) # greyscale
-    resG = np.zeros(hwG,dtype= np.uint8) 
+    resVideo = cv2.VideoWriter('Res.avi',cv2.VideoWriter_fourcc(*'XVID'),float(1),(analysis.hw),isColor = False) # greyscale
     while(ret):
         Time = Time + dTime
-        iTime = int(Time/dTime)
+        iTime = int(Time/dTime)-1
         cap.set(1,int(Time*fps))
         ret, frame = cap.read()
-
         try:
+            Lmean[iTime,0] = Time
             # statistics
-            we = -1 # starting of resG
-            for i,iTube in enumerate(tube.bounds):
-                wa,wb = iTube.getWab()
-                ws = we + 1
-                we = ws + iTube.getWidth() - 1
-                if i == 0 :
-                    Lmean[iTime,0] = Time 
-                    resG[:,ws:we] = frame[:,wa:wb,0]
-                else:
-                    Lmean[iTime,i],Lmean[iTime,i+numBound] = iTube.diffFrame(frame[:,wa:wb,0])
-                    resG[:,ws:we] = iTube.diff
-            resVideo.write(resG)
-            cv2.imshow('ROI',resG)
+            frameG = frame[:,:,0]
+            analysis.alignFrame(frameG)
+            ResDiff = analysis.diffFrame(frameG)
+            Lmean[iTime,1:] = analysis.statisticROI()
+
+            resVideo.write(analysis.diff)
+            cv2.imshow('ROI',analysis.diff)
             cv2.waitKey(1)
             print(Lmean[iTime,:])
         except:
