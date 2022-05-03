@@ -120,7 +120,7 @@ class postTubes(object):
         how to align  frame
     
     '''
-    def __init__(self,fp,fn,fm='.mov',nROI = 0,method = 2) -> None:
+    def __init__(self,fp,fn,fm='.mov',timeSec = 0, nROI = 0,method = 2) -> None:
         self.fp = fp
         self.fn = fn
         fpn = fp+fn + fm
@@ -131,6 +131,7 @@ class postTubes(object):
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         
         # set boundary
+        self.cap.set(1,self.fps*timeSec)
         ret, frame0 = self.cap.read()
         self.frame0 = frame0[:,:,0]
         print('set boundaries for frame&tubes')        
@@ -180,6 +181,7 @@ class postTubes(object):
         self.Diffs = []
         resVideo = cv2.VideoWriter('Res.avi',cv2.VideoWriter_fourcc(*'XVID'),float(1),(analysis.hw),isColor = False) # greyscale
         ret = True
+        cv2.namedWindow('Diff',0)
 
         while(ret):
             Time = Time + dTime
@@ -195,7 +197,7 @@ class postTubes(object):
                 self.Lmean[iTime,1:] = self.statisticROI()
 
                 resVideo.write(self.diff)
-                cv2.imshow('ROI',self.diff)
+                cv2.imshow('Diff',self.diff)
                 cv2.waitKey(1)
                 print(self.Lmean[iTime,:])
 
@@ -260,7 +262,7 @@ class postTubes(object):
         elif event.button ==2: # middle complete
             b.getMask()
             self.getAmbient()
-            if iBound == 0: 
+            if iBound == 0 and b.num >1: 
                 b.mask = cv2.bitwise_not(b.mask)
                 self.ambient = cv2.bitwise_not(self.ambient)
             Tube = cv2.bitwise_and(b.mask,self.frame0)
@@ -394,11 +396,10 @@ class postTubes(object):
 
 if __name__ == '__main__':
     # read video
-    fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.05\\'
-    fn = '2018.07.05.1058 7冷启动全过程-测试模式'
+    fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.06\\'
+    fn = '2018.07.06.2132 2稳定除霜'
     dTime = 0.5 # [s] 0.5s for 2*real time
-    iframe0 = 0 # TODO: DOING:
-    analysis = postTubes(fp,fn,nROI= 4)
+    analysis = postTubes(fp,fn,timeSec=84,nROI= 4)
 
     analysis.process(dTime)
 
