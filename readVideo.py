@@ -22,12 +22,13 @@ mask the tube & frame in SIFT (https://www.lmlphp.com/user/151116/article/item/7
 
 """
 
-from configparser import Interpolation
 import time
 import cv2
+from matplotlib.cbook import ls_mapper
+from matplotlib.font_manager import FontProperties
 import numpy as np
 import matplotlib.pyplot as plt
-from tenacity import retry_unless_exception_type
+import os
 
 # ROI substract
 class ROI(object):
@@ -115,35 +116,100 @@ class postTubes(object):
     bounds: ROI
         detail of ROI
     method,alignor,des0,kp0: int,...etc.
-        1 : ORB else: SIFT(slow) 
+        0: Not align 1: ORB 2: SIFT(slow) 
         how to align  frame
     
     '''
-    def __init__(self,fp,numROI,frame0,method = 1) -> None:
-
-        self.frame0 = frame0
-        self.hw = frame0.shape[0:2] # heigh width
-
-        self.numBound = numROI # numb of ROI
-        self.iBound = 0
-        self.bounds = []
-        for i in range(numROI+1):
-            self.bounds.append(ROI(i,self.hw[0],self.hw[1]))
-
-        self.ambient = None # Region exclude bounds  
-
-        self.method = method # ORB or SIFT
-        self.alignor = []
-        self.des0 = []
-        self.kp0 = []
-        self.ifwrite = False
+    def __init__(self,fp,fn,fm='.mov',nROI = 0,method = 2) -> None:
+        self.fp = fp
+        self.fn = fn
+        fpn = fp+fn + fm
+        if not(os.path.isfile(fpn)): 
+            print('wrong file path') 
+            return
+        self.cap = cv2.VideoCapture(fpn)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         
+        # set boundary
+        ret, frame0 = self.cap.read()
+        self.frame0 = frame0[:,:,0]
+        print('set boundaries for frame&tubes')        
+
+        self.hw = self.frame0.shape[0:2] # heigh width
+
+        # read or set ?
+        self.iBound = 0
+        if os.path.isfile(fpn+'.txt'):
+            self.readROIPoints(fpn+'.txt')
+        elif os.path.isfile('test.txt'):
+            self.readROIPoints('test.txt')
+        elif nROI>1:
+            self.setnumBound(nROI)
+        else:
+            print('ROI set wrong, exit')
+            return
+
+        self.ambient = np.zeros((self.hw[0],self.hw[1]),dtype=np.uint8) # Region exclude bounds  
         self.fig = plt.figure()
         self.fig.canvas.mpl_connect("key_press_event", self.setiROIBound)
         self.fig.canvas.mpl_connect('button_press_event',self.setROIPoints)
         self.ax = self.fig.add_subplot(111)
         self.drawFrame()
+        self.drawLines()
+        plt.ioff()
+        plt.show()
+        # close the plt
+        self.saveROIPoints(fpn+'.txt')
 
+        # alignor set
+        self.method = method # 0 not align 1 ORB or 2 SIFT
+        self.alignor = []
+        self.des0 = []
+        self.kp0 = []
+        self.ifwrite = False
+        
+        self.detectFrame0()
+    def process(self,dTime):
+        self.dTime = dTime
+        cap,fps = self.cap, self.fps
+        Time = 0.0 # [s]
+        capLen = int( cap.get(7)/cap.get(5)/float(dTime) ) 
+        self.Lmean = np.zeros((capLen,self.numBound+2)) # Res. Mean Lumination 
+
+        tic = time.time()
+        self.Diffs = []
+        resVideo = cv2.VideoWriter('Res.avi',cv2.VideoWriter_fourcc(*'XVID'),float(1),(analysis.hw),isColor = False) # greyscale
+        ret = True
+
+        while(ret):
+            Time = Time + dTime
+            iTime = int(Time/dTime)-1
+            cap.set(1,int(Time*fps))
+            ret, frame = cap.read()
+            try:
+                self.Lmean[iTime,0] = Time
+                # statistics
+                frameG = frame[:,:,0]
+                self.alignFrame(frameG)
+                self.Diffs.append( self.diffFrame() )
+                self.Lmean[iTime,1:] = self.statisticROI()
+
+                resVideo.write(self.diff)
+                cv2.imshow('ROI',self.diff)
+                cv2.waitKey(1)
+                print(self.Lmean[iTime,:])
+
+            except:
+                print('align diff fails') # res = 0
+                pass
+            # cv2.imshow('frame',frame)
+        toc = time.time()
+        print('cost',toc - tic)
+        np.savetxt('Lmean.csv',self.Lmean,delimiter=',')
+        
+        resVideo.release()
+        cv2.destroyAllWindows()
+        # self.cap.release()
     
     def drawFrame(self,frame = None):
         if frame is None: frame = self.frame0
@@ -155,21 +221,29 @@ class postTubes(object):
             b.drawLines(self.ax)
         self.fig.canvas.draw()     
 
+    def setnumBound(self,n):
+        self.numBound = n # numb of ROI
+        self.bounds = []
+        for i in range(n+1):
+            self.bounds.append(ROI(i,self.hw[0],self.hw[1]))
+
     # bonded Key and Button in fig
     def setiROIBound(self,event):        
         if event.key in '0123456789': # set bounds[key]
+            self.iBound = int(event.key)
             if self.iBound <= self.numBound:
-                self.iBound = int(event.key)
                 self.drawFrame()
                 self.drawLines()
                 print('set bound ',self.iBound,' Num_current',self.bounds[self.iBound].num)
             else:
                 print('out of max bound')
         elif event.key in 'c': #check
-            area = []
+            self.ax.cla()
+            img = np.zeros((self.hw[0],self.hw[1]))
             for b in self.bounds:
-                area.append(b.mask.sum()/255)
-            print(area)
+                img += cv2.bitwise_and(b.mask,self.frame0)
+            img += cv2.bitwise_and(self.ambient,self.frame0)//5
+            self.drawFrame(img)
         elif event.key in '-': # exit
             pass
     def setROIPoints(self,event):
@@ -186,6 +260,9 @@ class postTubes(object):
         elif event.button ==2: # middle complete
             b.getMask()
             self.getAmbient()
+            if iBound == 0: 
+                b.mask = cv2.bitwise_not(b.mask)
+                self.ambient = cv2.bitwise_not(self.ambient)
             Tube = cv2.bitwise_and(b.mask,self.frame0)
             Ambient = cv2.bitwise_and(self.ambient,self.frame0)//5 # darker ambient
             self.drawFrame(Tube+Ambient)
@@ -223,11 +300,16 @@ class postTubes(object):
         return self.ambient
 
     def detectFrame0(self): 
-        if self.method == 0 :        self.alignor = cv2.ORB_create(nfeatures= 5000)
-        else:        self.alignor = cv2.SIFT_create() 
+        if self.method ==0 : return
+        elif self.method == 1:  self.alignor = cv2.ORB_create(nfeatures= 5000)
+        elif self.method == 2:  self.alignor = cv2.SIFT_create() 
         self.kp0,self.des0 = self.alignor.detectAndCompute(self.frame0,self.ambient)
 
     def alignFrame(self,im2G, ifmask = 'ambient'): # by mask ambient
+        if self.method == 0: # not align
+            self.frame = im2G
+            return
+        
         # alignment
         im1G = self.frame0
         kp1 = self.kp0
@@ -277,9 +359,7 @@ class postTubes(object):
 
         self.frame = im2GReg
 
-    def diffFrame(self,im2G , ifdiff = True):
-        if not ifdiff:
-            return im2G
+    def diffFrame(self):
         self.diff = cv2.absdiff(self.frame,self.frame0)
         return self.diff
     
@@ -293,63 +373,35 @@ class postTubes(object):
         ambientDiff = ambient * self.diff
         mAve[0,i+1] = ambientDiff.sum()/ambient.sum()
         return mAve
+    
+    def plotStat(self):
+        plt.ion()
+        ax = plt.subplot(111)
+        t = self.Lmean[:,0]
+        l = self.Lmean[:,1:self.numBound+1]
+        ab = self.Lmean[:,self.numBound + 1]
+        LumTubes = ax.plot(t,l)
+        LumAmb = ax.plot(t,ab,'--')
+        ax.set_xlabel('time [s]')
+        ax.set_ylabel('Lumination [- 255]')
+        ax.set_title(self.fn,fontproperties='SimHei')
+        label = [str(i) for i in range(1,self.numBound+1)]
+        ax.legend(LumTubes,label)
+        plt.savefig(self.fn+'.png')
+        plt.ioff()
+        plt.show()
+        return ax
 
 if __name__ == '__main__':
     # read video
-    fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.07\\'
-    fn = '2018.07.07.1115 -7冷启动.mov'
-    fpn = fp+fn
-    iframe0 = 0
+    fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.05\\'
+    fn = '2018.07.05.1058 7冷启动全过程-测试模式'
+    dTime = 0.5 # [s] 0.5s for 2*real time
+    iframe0 = 0 # TODO: DOING:
+    analysis = postTubes(fp,fn,nROI= 4)
 
-    
-    cap = cv2.VideoCapture(fp+fn)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    
-    # set boundary
-    ret, frame0 = cap.read()
-    print('set boundaries for frame&tubes')
-    numBound = 4
-    analysis = postTubes(fpn,numBound,frame0[:,:,0])
-    analysis.readROIPoints()
-    plt.ioff()
-    plt.show()
-    analysis.saveROIPoints()
-    # wait until boundary set
-    analysis.detectFrame0()
+    analysis.process(dTime)
 
-    print('start processing')
-    dTime = 5 # [s]
-    Time  = 0.0 # s 
-    capLen = int( cap.get(7)/cap.get(5)/float(dTime) ) 
-    Lmean = np.zeros((capLen,numBound+2)) # Res. Mean Lumination 
-    tic = time.time()
-    resVideo = cv2.VideoWriter('Res.avi',cv2.VideoWriter_fourcc(*'XVID'),float(1),(analysis.hw),isColor = False) # greyscale
-    while(ret):
-        Time = Time + dTime
-        iTime = int(Time/dTime)-1
-        cap.set(1,int(Time*fps))
-        ret, frame = cap.read()
-        try:
-            Lmean[iTime,0] = Time
-            # statistics
-            frameG = frame[:,:,0]
-            analysis.alignFrame(frameG)
-            ResDiff = analysis.diffFrame(frameG)
-            Lmean[iTime,1:] = analysis.statisticROI()
+    ax = analysis.plotStat()
 
-            resVideo.write(analysis.diff)
-            cv2.imshow('ROI',analysis.diff)
-            cv2.waitKey(1)
-            print(Lmean[iTime,:])
-
-        except:
-            print('align diff fails') # res = 0
-            pass
-        # cv2.imshow('frame',frame)
-    toc = time.time()
-    print(toc - tic)
-    np.savetxt('Lmean.csv',Lmean,delimiter=',')
-
-    cap.release()
-    resVideo.release()
-    cv2.destroyAllWindows()
+    1
