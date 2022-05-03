@@ -1,6 +1,6 @@
 # Visual process the oil/ref mass flow rate in transparent tube
 
-## TODO:
+## TODO: further
 
 1. save ROIs Pending
 2. return to alignmenet whole image, then select good points by diff of ambient.
@@ -25,7 +25,7 @@ Manually <-> Code
 2. Alignment methods
    1. Get features [web](https://blog.csdn.net/qq_35497808/article/details/74999344)
       1. Pixel based [ECC not good](./Dev/ECC_D10s-0.jpg)
-      2. features [mask the TRASPARENT tube at first!](https://stackoverflow.com/questions/42346761/opencv-python-feature-detection-how-to-provide-a-mask-sift) 
+      2. features [mask the TRASPARENT tube at first!](https://stackoverflow.com/questions/42346761/opencv-python-feature-detection-how-to-provide-a-mask-sift)
          1. [ORB ok](./Dev/ORB_im2GDiff.jpg)
          2. [SIFT ok,slighterly better than ORB](./de/../Dev/SIFT_im2GDiff.jpg)
          3. [SURF been removed]a
