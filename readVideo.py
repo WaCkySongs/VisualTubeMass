@@ -119,7 +119,7 @@ class postTubes(object):
         how to align  frame
     
     '''
-    def __init__(self,numROI,frame0,method = 1) -> None:
+    def __init__(self,fp,numROI,frame0,method = 1) -> None:
 
         self.frame0 = frame0
         self.hw = frame0.shape[0:2] # heigh width
@@ -143,6 +143,7 @@ class postTubes(object):
         self.fig.canvas.mpl_connect('button_press_event',self.setROIPoints)
         self.ax = self.fig.add_subplot(111)
         self.drawFrame()
+
     
     def drawFrame(self,frame = None):
         if frame is None: frame = self.frame0
@@ -164,6 +165,11 @@ class postTubes(object):
                 print('set bound ',self.iBound,' Num_current',self.bounds[self.iBound].num)
             else:
                 print('out of max bound')
+        elif event.key in 'c': #check
+            area = []
+            for b in self.bounds:
+                area.append(b.mask.sum()/255)
+            print(area)
         elif event.key in '-': # exit
             pass
     def setROIPoints(self,event):
@@ -186,9 +192,29 @@ class postTubes(object):
             cv2.waitKey(10)
             return
         b.drawLines(self.ax)
-        self.fig.canvas.draw()     
-    def saveROIPoints(self):
-        1 # TODO: DOING: SAVE POINTS to txt file
+        self.fig.canvas.draw()   
+    
+    def saveROIPoints(self,fp='test.txt'):
+        set = np.zeros((0,2))
+        set = np.append(set,[[self.numBound,0]],axis=0)
+        for b in self.bounds:
+            set = np.append(set,[[b.num,0]],axis=0)
+            set = np.append(set,b.xy,axis=0)
+        np.savetxt(fp,set)        
+    def readROIPoints(self,fp='test.txt'):
+        set = np.loadtxt(fp)
+        i = 0
+        self.numBound = int(set[i,0])
+        self.bounds = []
+        for iBound in range(self.numBound + 1):
+            self.bounds.append(ROI(iBound,self.hw[0],self.hw[1]))
+            b = self.bounds[iBound]
+            i = i + 1
+            num = int(set[i,0])
+            for xy in set[i+1:i+1+num,:]:
+                i = i + 1
+                b.add(xy[0],xy[1])
+        return
     def getAmbient(self):
         ambient = self.bounds[0].mask
         for b in self.bounds[1:]:
@@ -272,6 +298,7 @@ if __name__ == '__main__':
     # read video
     fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.07\\'
     fn = '2018.07.07.1115 -7冷启动.mov'
+    fpn = fp+fn
     iframe0 = 0
 
     
@@ -282,10 +309,11 @@ if __name__ == '__main__':
     ret, frame0 = cap.read()
     print('set boundaries for frame&tubes')
     numBound = 4
-    analysis = postTubes(numBound,frame0[:,:,0])
+    analysis = postTubes(fpn,numBound,frame0[:,:,0])
+    analysis.readROIPoints()
     plt.ioff()
     plt.show()
-
+    analysis.saveROIPoints()
     # wait until boundary set
     analysis.detectFrame0()
 
@@ -313,6 +341,7 @@ if __name__ == '__main__':
             cv2.imshow('ROI',analysis.diff)
             cv2.waitKey(1)
             print(Lmean[iTime,:])
+
         except:
             print('align diff fails') # res = 0
             pass
