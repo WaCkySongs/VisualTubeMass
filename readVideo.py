@@ -23,12 +23,13 @@ mask the tube & frame in SIFT (https://www.lmlphp.com/user/151116/article/item/7
 """
 
 import time
+from unittest import loader
 import cv2
-from matplotlib.cbook import ls_mapper
-from matplotlib.font_manager import FontProperties
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+from openpyxl import load_workbook
+import pandas as pd
 
 # ROI substract
 class ROI(object):
@@ -167,9 +168,9 @@ class postTubes(object):
         self.alignor = []
         self.des0 = []
         self.kp0 = []
-        self.ifwrite = False
-        
+        self.ifwrite = False        
         self.detectFrame0()
+
     def process(self,dTime):
         self.dTime = dTime
         cap,fps = self.cap, self.fps
@@ -207,7 +208,6 @@ class postTubes(object):
             # cv2.imshow('frame',frame)
         toc = time.time()
         print('cost',toc - tic)
-        np.savetxt('Lmean.csv',self.Lmean,delimiter=',')
         
         resVideo.release()
         cv2.destroyAllWindows()
@@ -375,7 +375,20 @@ class postTubes(object):
         ambientDiff = ambient * self.diff
         mAve[0,i+1] = ambientDiff.sum()/ambient.sum()
         return mAve
-    
+
+    def saveRes(self,fp=None):
+        from openpyxl import load_workbook
+        if fp: 
+            np.savetxt(fp,self.Lmean,delimiter=',')
+        else: 
+            fp = 'Res.xlsx'
+            book = load_workbook(fp)
+            writer = pd.ExcelWriter(fp,engine='openpyxl')
+            writer.book = book
+            data = pd.DataFrame(self.Lmean)
+            data.to_excel(excel_writer=writer,sheet_name = self.fn)
+            writer.save()
+            writer.close()
     def plotStat(self):
         plt.ion()
         ax = plt.subplot(111)
@@ -394,15 +407,26 @@ class postTubes(object):
         plt.show()
         return ax
 
+def loadRes(fp,fn):
+    df = pd.read_excel(fp,fn,index_col=0)
+    data = df.values
+    return data
+
 if __name__ == '__main__':
     # read video
-    fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.06\\'
-    fn = '2018.07.06.2132 2稳定除霜'
-    dTime = 0.5 # [s] 0.5s for 2*real time
-    analysis = postTubes(fp,fn,timeSec=84,nROI= 4)
+    fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.07\\'
+    fn = '2018.07.07.1608 -7除霜'
+    Resfn = 'Res.xlsx'
 
-    analysis.process(dTime)
+    if True:
+        dTime = 0.5 # [s] 0.5s for 2*real time
+        analysis = postTubes(fp,fn,timeSec = 42,nROI=4) #,timeSec=472.6
 
-    ax = analysis.plotStat()
+        analysis.process(dTime)
+        analysis.saveRes()
+        ax = analysis.plotStat()
+    else: 
+        data = loadRes(Resfn,fn)
+
 
     1

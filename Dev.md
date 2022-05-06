@@ -34,10 +34,12 @@ Manually <-> Code
       2. partly: sightglass2 misalignment during frosting some frames, maybe postprocess
       3. not alignment: [bad] ambientDiff twice larger.
 3. faster by save im1G, pts1, des1 ...
+4. pandas to existed excel with [openpyxl](https://stackoverflow.com/questions/61933021/how-to-overwrite-data-on-an-existing-excel-sheet-while-preserving-all-other-shee)
+5. filter: [mean53 or minInN better](./Dev/FilterTest.png)
 
 ## FUTHER DEVELOPMENT
 
-1. -15 frost image enhancement 
+1. -15 frost image enhancement
    1. light
    2. contrast
 2. Cluster Classification Flow Pattern
