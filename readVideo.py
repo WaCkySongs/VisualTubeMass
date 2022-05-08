@@ -415,12 +415,12 @@ def loadRes(fp,fn):
 if __name__ == '__main__':
     # read video
     fp = 'E:\\ba高速摄影仪录像\\2018.06\\2018.07.07\\'
-    fn = '2018.07.07.1608 -7除霜'
+    fn = '2018.07.07.1115 -7冷启动'
     Resfn = 'Res.xlsx'
 
     if True:
         dTime = 0.5 # [s] 0.5s for 2*real time
-        analysis = postTubes(fp,fn,timeSec = 42,nROI=4) #,timeSec=472.6
+        analysis = postTubes(fp,fn,timeSec = 0,nROI=2) #,timeSec=472.6
 
         analysis.process(dTime)
         analysis.saveRes()

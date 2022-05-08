@@ -39,11 +39,16 @@ Manually <-> Code
 
 ## FUTHER DEVELOPMENT
 
-1. -15 frost image enhancement
+1. classification
+   1. 
+   2. mean,std,cov,Ra,Rq,R ...
+   3. KNN, ResNet ... + Kmeans
+2. -15 frost image enhancement
    1. light
-   2. contrast
-2. Cluster Classification Flow Pattern
-3. Process
+   2. [contrast](https://blog.csdn.net/weixin_39543758/article/details/110560791 and https://blog.csdn.net/neil_skype/article/details/122609206)
+   3. [by ]
+3. Cluster Classification Flow Pattern
+4. Process
    1. Hough变换提取几何区域
    2. 图像增强
    3. 分割与特征提取
